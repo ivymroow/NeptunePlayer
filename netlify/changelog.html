@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeptunePlayer - Changelog</title>
+    <meta name="description" content="NeptunePlayer changelog">
+    <meta property="og:title" content="NeptunePlayer Changelog">
+    <meta property="og:description" content="NeptunePlayer changelog">
+    <meta property="og:image" content="https://raw.githubusercontent.com/ivymroow/NeptunePlayer/main/prideicon.png">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary">
+    <meta name="theme-color" content="#57fe59">
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/ivymroow/NeptunePlayer/main/prideicon.png">
+    <style>
+        :root { --neon: #57fe59; --bg: #0a0a0a; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg); color: var(--neon); font-family: 'Segoe UI', sans-serif;
+            min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+            overflow-x: hidden;
+        }
+        #hero {
+            text-align: center; padding: 40px 20px 20px 20px; max-width: 700px;
+        }
+        #hero img { width: 56px; height: 56px; margin-bottom: 8px; filter: drop-shadow(0 0 20px var(--neon)); }
+        #hero h1 { font-size: 2rem; letter-spacing: 4px; text-shadow: 0 0 20px var(--neon); margin-bottom: 6px; }
+        .btn {
+            display: inline-block; background: var(--neon); color: #000; padding: 12px 34px;
+            border-radius: 50px; font-weight: bold; text-decoration: none; text-transform: uppercase;
+            letter-spacing: 2px; font-size: 0.9rem; transition: 0.2s; box-shadow: 0 0 30px -5px var(--neon);
+        }
+        .btn:hover { transform: scale(1.05); box-shadow: 0 0 50px -5px var(--neon); }
+        #changelog {
+            max-width: 600px; width: 90%; padding: 20px; text-align: center;
+        }
+        #changelog .entry {
+            background: #111; border: 1px solid var(--neon); border-radius: 14px; padding: 24px 20px;
+            text-align: center;
+        }
+        #changelog .entry h2 { font-size: 1rem; letter-spacing: 2px; margin-bottom: 4px; }
+        #changelog .entry .sub { font-size: 0.7rem; opacity: 0.5; margin-bottom: 16px; }
+        #changelog .entry ul { list-style: none; text-align: left; }
+        #changelog .entry li { font-size: 0.8rem; opacity: 0.85; line-height: 1.7; padding-left: 16px; position: relative; margin-bottom: 4px; }
+        #changelog .entry li::before { content: "-"; position: absolute; left: 0; color: var(--neon); }
+        #footer {
+            padding: 20px 14px; text-align: center; font-size: 0.65rem; opacity: 0.3; letter-spacing: 2px;
+        }
+        #stars {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="stars"></canvas>
+
+    <div id="hero">
+        <img src="https://raw.githubusercontent.com/ivymroow/NeptunePlayer/main/prideicon.png" alt="NeptunePlayer">
+        <h1>Changelog</h1>
+    </div>
+
+    <div id="changelog">
+        <div class="entry">
+            <h2>NeptunePlayer Changelog</h2>
+            <div class="sub">developed by ivymroow &bull; logos designed by NepVortex64</div>
+            <p style="font-size:0.85rem; opacity:0.6; margin-bottom:16px;">Beta Version: 1.2.4</p>
+            <ul>
+                <li>added ctrl + click to bulk add + delete + favourite tracks</li>
+                <li>added drag and drop support to library [drag and drop audio files into NeptunePlayer library]</li>
+                <li>added song history [from this update and forward your songs will now log to access this menu right click any song]</li>
+                <li>added theme editor; edit the entire app when disabling reactive NeptunePlayer</li>
+                <li>added actual file editing [right click any track to either single editor or bulk edit]</li>
+                <li>added backup and restore for NeptunePlayer itself (neptune)</li>
+                <li>added crossfade</li>
+                <li>added equalizer menu</li>
+                <li>updated discord rich presence</li>
+            </ul>
+            <div class="sub" style="margin-top:16px; margin-bottom:0;">Sun, June 20.</div>
+        </div>
+    </div>
+
+    <div style="padding:20px;">
+        <a class="btn" href="/">Back</a>
+    </div>
+
+    <div id="footer">
+        made with &#x2764; by ivy
+    </div>
+
+    <script>
+        const canvas = document.getElementById('stars');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        const stars = [];
+        for (let i = 0; i < 100; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = Math.random() * 0.3 + 0.05;
+            stars.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, r: Math.random() * 1.8 + 0.3, o: Math.random(), s: Math.random() * 0.008 + 0.003, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+        }
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            stars.forEach(s => {
+                s.o += s.s; ctx.globalAlpha = Math.abs(Math.sin(s.o)) * 0.5 + 0.1;
+                ctx.fillStyle = '#57fe59'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+                s.x += s.vx; s.y += s.vy;
+                if (s.x < -10) s.x = canvas.width + 10; if (s.x > canvas.width + 10) s.x = -10;
+                if (s.y < -10) s.y = canvas.height + 10; if (s.y > canvas.height + 10) s.y = -10;
+            });
+            requestAnimationFrame(draw);
+        }
+        draw();
+        window.onresize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    </script>
+</body>
+</html>

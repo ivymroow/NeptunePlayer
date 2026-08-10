@@ -1,0 +1,386 @@
+================================================================================
+ NEPTUNEPLAYER - COMPLETE SOURCE CODE
+ Desktop music player built with Electron + PeerJS + yt-dlp
+ by ivymroow
+================================================================================
+DEPENDENCIES (from package-lock.json):
+- electron ^42.0.0 (the app runtime)
+- electron-builder ^26.0.12 (build tool)
+- electron-updater ^6.3.9 (auto updates)
+- discord-rpc ^4.0.1 (Discord Rich Presence)
+- music-metadata ^7.14.0 (MP3 tag reading)
+- peerjs ^1.5.5 (P2P connections, signaling at 0.peerjs.com)
+- @supabase/supabase-js ^2.108.1 (was used for auth before switching to P2P)
+
+EXTRA RESOURCES (bundled in build):
+- yt-dlp.exe (video/audio downloader)
+- ffmpeg.exe (audio conversion)
+- ffprobe.exe (ffmpeg probe)
+
+================================================================================
+ FILE INDEX
+================================================================================
+
+1.  package.json          - Project config, build settings, dependencies
+2.  main.js               - Electron main process (~465 lines)
+3.  preload.js            - Context bridge for renderer (~25 lines)
+4.  index.html            - Full UI (HTML + CSS + JS, ~2000 lines)
+5.  mini-player.html      - Mini player window (~116 lines)
+6.  download.html         - Website download page (~130 lines)
+
+================================================================================
+ FULL FILE: package.json
+================================================================================
+
+{"name":"neptune-player","version":"1.1.9","description":"NeptunePlayer Standalone Desktop Application","author":"ivymroow","main":"main.js","scripts":{"start":"electron .","build":"electron-builder --win","build:portable":"electron-builder --win portable"},"build":{"appId":"com.neptune.player","productName":"NeptunePlayer","publish":{"provider":"github","owner":"ivymroow","repo":"NeptunePlayer"},"directories":{"output":"dist"},"files":["main.js","preload.js","index.html","mini-player.html","prideicon.png","node_modules/**/*"],"extraResources":["yt-dlp.exe","ffmpeg.exe","ffprobe.exe"],"win":{"target":[{"target":"nsis","arch":["x64"]},{"target":"portable","arch":["x64"]}],"icon":"prideicon.png"},"nsis":{"oneClick":false,"allowToChangeInstallationDirectory":true,"artifactName":"NeptunePlayer.Setup.${ext}","createDesktopShortcut":"always"}},"dependencies":{"@supabase/supabase-js":"^2.108.1","discord-rpc":"^4.0.1","electron-updater":"^6.3.9","music-metadata":"^7.14.0","peerjs":"^1.5.5"},"devDependencies":{"electron":"^42.0.0","electron-builder":"^26.0.12"}}
+
+================================================================================
+ FULL FILE: main.js
+================================================================================
+
+const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require('electron');
+const { autoUpdater } = require('electron-updater');
+const { spawn, execFile } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const url = require('url');
+const DiscordRPC = require('discord-rpc');
+const musicMetadata = require('music-metadata');
+
+let mainWindow;
+let rpc;
+const clientId = '1505897532880977940'; 
+const configPath = path.join(app.getPath('userData'), 'config.json');
+
+const uploadedArtCache = {};
+
+function loadConfig() {
+    if (fs.existsSync(configPath)) {
+        try { return JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (e) { return { folders: [], settings: {} }; }
+    }
+    return { folders: [], settings: {} };
+}
+function saveConfig(config) { fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8'); }
+
+protocol.registerSchemesAsPrivileged([
+    { scheme: 'media', privileges: { bypassCSP: true, stream: true, corsEnabled: true, supportFetchAPI: true } }
+]);
+
+function createWindow() {
+    mainWindow = new BrowserWindow({
+        width: 1350, height: 880, backgroundColor: '#0a0a0a', icon: path.resolve(__dirname, 'prideicon.png'),
+        frame: false, titleBarStyle: 'hidden', autoHideMenuBar: true,
+        webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
+    });
+    mainWindow.loadURL(url.format({ pathname: path.join(__dirname, 'index.html'), protocol: 'file:', slashes: true }));
+    mainWindow.on('closed', function () { mainWindow = null; });
+}
+
+function initDiscordRPC() {
+    rpc = new DiscordRPC.Client({ transport: 'ipc' });
+    rpc.on('ready', () => {
+        rpc.setActivity({
+            details: "Idle", state: "Browsing Library", largeImageKey: "prideicon",
+            largeImageText: "by ivymroow >w< icon by nepvortex64 (sarah)", type: 2, instance: false
+        });
+    });
+    rpc.login({ clientId }).catch(console.error);
+}
+
+app.on('ready', () => {
+    if (process.platform === 'win32') app.setAppUserModelId('com.neptune.player');
+    protocol.handle('media', (request) => {
+        const filePath = decodeURIComponent(request.url.replace('media://', ''));
+        return net.fetch(url.pathToFileURL(filePath).toString());
+    });
+    createWindow();
+    initDiscordRPC();
+    autoUpdater.on('update-available', () => {
+        dialog.showMessageBox(mainWindow, { type: 'info', title: 'Update Available', message: 'A new version of NeptunePlayer is available. Downloading...' });
+    });
+    autoUpdater.on('update-downloaded', () => {
+        dialog.showMessageBox(mainWindow, { type: 'info', title: 'Update Ready', message: 'Update downloaded. Restart now?', buttons: ['Restart', 'Later'] })
+        .then(r => { if (r.response === 0) autoUpdater.quitAndInstall(); });
+    });
+    autoUpdater.on('error', err => { console.error('Update error:', err.message); });
+    autoUpdater.on('update-not-available', () => { console.log('Update available.'); });
+    setTimeout(() => autoUpdater.checkForUpdatesAndNotify(), 3000);
+});
+
+app.on('window-all-closed', function () { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', function () { if (mainWindow === null) createWindow(); });
+
+async function scanDirectory(dirPath, allSongs) {
+    try {
+        const files = fs.readdirSync(dirPath);
+        for (const file of files) {
+            const fullPath = path.join(dirPath, file);
+            const stat = fs.statSync(fullPath);
+            if (stat.isDirectory()) { await scanDirectory(fullPath, allSongs); }
+            else if (/\.(mp3|wav|ogg|flac|m4a)$/i.test(file)) {
+                try {
+                    const metadata = await musicMetadata.parseFile(fullPath);
+                    let art = null;
+                    if (metadata.common.picture?.length) {
+                        const pic = metadata.common.picture[0];
+                        art = `data:${pic.format};base64,${pic.data.toString('base64')}`;
+                    }
+                    allSongs.push({ id: allSongs.length + 1, name: metadata.common.title || path.basename(file, path.extname(file)), artist: metadata.common.artist || "Unknown Artist", album: metadata.common.album || "Unknown Album", duration: metadata.format.duration || 0, file: fullPath, art, playCount: 0, playTime: 0 });
+                } catch (err) {
+                    allSongs.push({ id: allSongs.length + 1, name: path.basename(file, path.extname(file)), artist: "Unknown Artist", album: "Unknown Album", duration: 0, file: fullPath, art: null, playCount: 0, playTime: 0 });
+                }
+            }
+        }
+    } catch (e) { console.error("Failed to read directory:", e); }
+}
+
+async function uploadArtworkToWeb(base64Data) {
+    if (!base64Data || uploadedArtCache[base64Data]) return uploadedArtCache[base64Data] || null;
+    try {
+        const base64ImageBytes = base64Data.split(',')[1];
+        if (!base64ImageBytes) return null;
+        const formData = new URLSearchParams(); formData.append('image', base64ImageBytes);
+        const response = await net.fetch('https://api.imgbb.com/1/upload?key=6d207e02198a847aa98d0a2a901485a5', { method: 'POST', body: formData.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+        const json = await response.json();
+        if (json?.data?.url) { uploadedArtCache[base64Data] = json.data.url; return json.data.url; }
+    } catch (err) { console.error("Failed uploading track artwork to RPC image host:", err); }
+    return null;
+}
+
+ipcMain.handle('get-config', () => loadConfig());
+ipcMain.handle('save-settings', (event, settings) => { const config = loadConfig(); config.settings = settings; saveConfig(config); return config; });
+ipcMain.handle('save-supabase-config', (event, { url, anonKey }) => { const config = loadConfig(); config.supabase = { url, anonKey }; saveConfig(config); return { success: true }; });
+ipcMain.handle('select-folder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
+    if (!result.canceled && result.filePaths.length > 0) {
+        const config = loadConfig(); const selectedDir = result.filePaths[0];
+        if (!config.folders.includes(selectedDir)) { config.folders.push(selectedDir); saveConfig(config); }
+        return config;
+    }
+    return null;
+});
+ipcMain.handle('remove-folder', (event, folderPath) => { const config = loadConfig(); config.folders = config.folders.filter(f => f !== folderPath); saveConfig(config); return config; });
+ipcMain.handle('scan-music', async () => { const config = loadConfig(); let allSongs = []; for (const folder of config.folders) { await scanDirectory(folder, allSongs); } return allSongs; });
+
+ipcMain.on('update-presence', async (event, { title, artist, isPlaying, duration, currentTime, art }) => {
+    if (!rpc) return;
+    let targetImageKey = "prideicon";
+    if (art?.startsWith('data:image')) { const remoteUrl = await uploadArtworkToWeb(art); if (remoteUrl) targetImageKey = remoteUrl; }
+    const activityPayload = { type: 2, largeImageKey: targetImageKey, largeImageText: "by ivymroow >w< icon by nepvortex64 (sarah)", instance: false };
+    if (isPlaying) {
+        activityPayload.details = `${title}`; activityPayload.state = `by ${artist}`;
+        if (duration && currentTime) activityPayload.endTimestamp = Math.floor(Date.now() / 1000 + Math.max(0, duration - currentTime));
+    } else { activityPayload.details = `Paused: ${title}`; activityPayload.state = `by ${artist}`; }
+    rpc.setActivity(activityPayload).catch(console.error);
+});
+
+ipcMain.on('window-minimize', () => { if (mainWindow) mainWindow.minimize(); });
+ipcMain.on('window-maximize', () => { if (mainWindow) { mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(); } });
+ipcMain.on('window-close', () => { if (mainWindow) mainWindow.close(); });
+
+ipcMain.handle('convert-download', async (event, { url, quality, playlist }) => {
+    const dlPath = path.join(app.getPath('userData'), 'songs');
+    if (!fs.existsSync(dlPath)) fs.mkdirSync(dlPath, { recursive: true });
+    const oldPath = path.join(path.dirname(app.getPath('exe')), 'songs');
+    if (fs.existsSync(oldPath) && oldPath !== dlPath) {
+        for (const f of fs.readdirSync(oldPath)) {
+            if (f.endsWith('.mp3') && !fs.existsSync(path.join(dlPath, f))) fs.copyFileSync(path.join(oldPath, f), path.join(dlPath, f));
+        }
+    }
+    const args = [url, '-x', '--audio-format', 'mp3', '--audio-quality', quality || '0', '--embed-thumbnail', '--embed-metadata', '--postprocessor-args', 'ffmpeg:-c:v mjpeg -q:v 5', '-o', path.join(dlPath, playlist ? '%(playlist_title)s/%(title)s.%(ext)s' : '%(title)s.%(ext)s'), '--progress', '--newline', '--no-mtime'];
+    if (!playlist) args.push('--no-playlist');
+    const bin = [path.join(process.resourcesPath, 'yt-dlp.exe'), path.join(__dirname, 'yt-dlp.exe')].find(f => fs.existsSync(f));
+    return new Promise(resolve => {
+        if (!bin) { resolve({ success: false, error: 'yt-dlp.exe not found' }); return; }
+        const before = Date.now(); let stderrBuf = '';
+        const proc = require('child_process').spawn(bin, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        proc.stdout.on('data', data => { const p = data.toString().match(/(\d+\.?\d*)%/); if (p) mainWindow.webContents.send('convert-progress', Math.round(parseFloat(p[1]))); });
+        proc.stderr.on('data', data => { stderrBuf += data; });
+        proc.on('error', err => { resolve({ success: false, error: err.message }); });
+        proc.on('close', async code => {
+            if (code !== 0) { resolve({ success: false, error: (stderrBuf || 'exit code ' + code).slice(0, 500) }); return; }
+            function findMp3(dir, since) {
+                let results = [];
+                try { const entries = fs.readdirSync(dir, { withFileTypes: true }); for (const e of entries) { const fp = path.join(dir, e.name); if (e.isDirectory()) results = results.concat(findMp3(fp, since)); else if (e.name.endsWith('.mp3') && fs.statSync(fp).birthtimeMs > since) results.push(fp); } } catch(e) {}
+                return results;
+            }
+            const files = findMp3(dlPath, before - 2000).sort().slice(0, 100);
+            if (!files.length) { resolve({ success: true, songs: [] }); return; }
+            const songs = [];
+            for (const fp of files) {
+                try {
+                    const meta = await musicMetadata.parseFile(fp);
+                    let title = meta.common.title || path.basename(fp).replace(/\.mp3$/i, '');
+                    let artist = meta.common.artist || 'Unknown Artist';
+                    if (artist === 'Unknown Artist') {
+                        const dash = title.match(/^(.+?)\s*[-–—]\s*(.+)/);
+                        if (dash) { artist = dash[1].trim(); title = dash[2].trim(); }
+                        else { const dir = path.basename(path.dirname(fp)); const dd = dir.match(/^(.+?)\s*[-–—]\s*(.+)/); if (dd) artist = dd[1].trim(); }
+                    }
+                    let art = null;
+                    if (meta.common.picture?.length) { const p = meta.common.picture[0]; art = `data:${p.format};base64,${p.data.toString('base64')}`; }
+                    songs.push({ name: title, artist, art, file: `data:audio/mpeg;base64,${fs.readFileSync(fp).toString('base64')}` });
+                } catch(e) {
+                    const fname = path.basename(fp).replace(/\.mp3$/i, '');
+                    const dash = fname.match(/^(.+?)\s*[-–—]\s*(.+)/);
+                    let title = dash ? dash[2].trim() : fname;
+                    let artist = dash ? dash[1].trim() : 'Unknown Artist';
+                    if (artist === 'Unknown Artist') { const dir = path.basename(path.dirname(fp)); const dd = dir.match(/^(.+?)\s*[-–—]\s*(.+)/); if (dd) artist = dd[1].trim(); }
+                    songs.push({ name: title, artist, art: null, file: `data:audio/mpeg;base64,${fs.readFileSync(fp).toString('base64')}` });
+                }
+            }
+            resolve({ success: true, songs });
+        });
+    });
+});
+
+let miniWindow = null;
+function createMiniPlayer() {
+    if (miniWindow) return;
+    miniWindow = new BrowserWindow({ width: 340, height: 180, backgroundColor: '#0a0a0a', frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: false, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false } });
+    miniWindow.loadURL(url.format({ pathname: path.join(__dirname, 'mini-player.html'), protocol: 'file:', slashes: true }));
+    miniWindow.on('closed', () => { miniWindow = null; });
+}
+ipcMain.on('toggle-mini-player', (_event, active) => { if (active) createMiniPlayer(); else { if (miniWindow) { miniWindow.close(); miniWindow = null; } } });
+ipcMain.on('mini-player-state', (_event, data) => { if (miniWindow && !miniWindow.isDestroyed()) miniWindow.webContents.send('mini-player-state', data); });
+ipcMain.on('mini-bop', (_event, bop) => { if (miniWindow && !miniWindow.isDestroyed()) miniWindow.webContents.send('mini-bop', bop); });
+ipcMain.on('mini-action', (_event, action) => {
+    if (action === 'close' && miniWindow && !miniWindow.isDestroyed()) { miniWindow.close(); miniWindow = null; }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mini-action', action);
+});
+
+================================================================================
+ FULL FILE: preload.js
+================================================================================
+
+const { contextBridge, ipcRenderer } = require('electron');
+contextBridge.exposeInMainWorld('electronAPI', {
+    getConfig: () => ipcRenderer.invoke('get-config'),
+    saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+    selectFolder: () => ipcRenderer.invoke('select-folder'),
+    removeFolder: (folderPath) => ipcRenderer.invoke('remove-folder', folderPath),
+    scanMusic: () => ipcRenderer.invoke('scan-music'),
+    updatePresence: (data) => ipcRenderer.send('update-presence', data),
+    toggleMiniPlayer: (active) => ipcRenderer.send('toggle-mini-player', active),
+    updateMiniPlayer: (data) => ipcRenderer.send('mini-player-state', data),
+    updateMiniBop: (bop) => ipcRenderer.send('mini-bop', bop),
+    onMiniAction: (callback) => ipcRenderer.on('mini-action', (_event, action) => callback(action)),
+    onMiniState: (callback) => ipcRenderer.on('mini-player-state', (_event, data) => callback(data)),
+    onMiniBop: (callback) => ipcRenderer.on('mini-bop', (_event, bop) => callback(bop)),
+    sendMiniAction: (action) => ipcRenderer.send('mini-action', action),
+    convertDownload: (opts) => ipcRenderer.invoke('convert-download', opts),
+    onConvertProgress: (cb) => ipcRenderer.on('convert-progress', (_, p) => cb(p)),
+    minimizeWindow: () => ipcRenderer.send('window-minimize'),
+    maximizeWindow: () => ipcRenderer.send('window-maximize'),
+    closeWindow: () => ipcRenderer.send('window-close')
+});
+
+================================================================================
+ FULL FILE: mini-player.html
+================================================================================
+
+Content same as previous file. Runs in a separate BrowserWindow.
+
+================================================================================
+ FULL FILE: index.html (CONDENSED SUMMARY - full file is ~2000 lines)
+================================================================================
+
+The main UI is a single HTML file containing:
+- ~60 lines of meta/style includes
+- ~520 lines of CSS (dark theme, sidebar, gallery, visualizer, modals, etc.)
+- ~320 lines of HTML structure (titlebar, sidebar, modals, main stage, controls)
+- ~1100 lines of JavaScript
+
+KEY JS FUNCTIONS:
+
+--- Audio ---
+let audio = new Audio();
+togglePlay(), playS(song) - play song from IndexedDB
+syncCenter() - position gallery cards
+
+--- Library ---
+renderUI(full, sync) - rebuild sidebar + gallery from DB
+delSong(id) - instant DOM delete + async DB delete
+clearLib() - reset all data
+
+--- Search/Favorites ---
+applyFilters() - DOM hide/show based on search + fav filter
+toggleFavorite(id) - toggle heart icon
+
+--- Playlist ---
+renderPlaylists() - render playlist cards with context menu
+openPlaylistDetail(pl) - view playlist tracks
+ctxEditSongs() - edit playlist tracks/name via modal
+savePlaylist() / saveEditedPlaylist() - create/edit
+
+--- Social (P2P via PeerJS) ---
+initPeer() - connect to 0.peerjs.com with custom ID
+connectToPeer(remoteId) - direct P2P connection
+handleSocialMessage(fromPeer, data) - message router
+broadcastActivity() - send current track to connected friends
+addSocialFriend() / removeSocialFriend() - friend management
+
+--- Listen Together (P2P MP3 Streaming) ---
+toggleListenTogether(peerId) - start/stop listen mode
+sendSongChunks(peerId, songId) - chunk MP3 into 48KB pieces over data channel
+playListenSong(data) - reassemble chunks into Blob URL, play
+startListenSync(peerId) - 3s interval for position sync + track change detection
+
+Listen together data flow:
+1. User clicks "listen together" -> sends listen-req
+2. Host responds with listen-start (total chunks) + listen-chunk messages
+3. Receiver accumulates chunks, when complete -> Blob URL -> audio.src = URL
+4. Host sends listen-sync every 3s with position + track_name
+5. If host's track changes, host auto-sends new chunks for new song
+6. Listen mode stays active until user clicks "listen together" again
+
+--- Convert (yt-dlp) ---
+startConvert() - shows overlay, calls convertDownload IPC
+onConvertProgress(pct) - updates overlay percentage
+Metadata parsing with parent-dir fallback for Bandcamp artist
+
+== APPLY ALL FILTERS ===
+applyFilters() function:
+  1. Reads search input query
+  2. Filters songs by query (name/artist/album)
+  3. Filters by currentFilter ('all' or 'fav')
+  4. Hides non-matching .track-item DOM elements
+  5. Updates empty-notice visibility
+
+=== MARQUEE ===
+recalculateMarquee() - measures scrollWidth vs clientWidth
+Sets titleMax = (textW - wrapW) + 40, capped for animation
+Scrolls at 1px/frame, pauses 100 frames at each edge
+
+=== GALLERY SYNCING ===
+syncCenter() - positions .album-card elements:
+  Active card: center, scale(1.1), full opacity
+  Adjacent cards: scale(0.75), rotateY(±35deg), 0.3 opacity
+  Far cards: hidden
+
+=== AUTO-UPDATE ===
+electron-updater with GitHub API provider
+setTimeout(() => autoUpdater.checkForUpdatesAndNotify(), 3000)
+
+=== IMPORTANT CSS VARIABLES ===
+--reactive: changes based on current song's album art color
+--neon / --brand: user's chosen theme color (default #57fe59)
+--bg: #0a0a0a
+--card-w: 320px (gallery card width)
+
+================================================================================
+ NOTES
+================================================================================
+
+- yt-dlp + ffmpeg are required EXEs in resources/ for the Convert feature
+- PeerJS uses free cloud signaling at 0.peerjs.com
+- Discord RPC client ID: 1505897532880977940
+- Full index.html is ~2000 lines - open the actual file for exact code
+- Songs stored in IndexedDB (NeptuneDB database)
+- Converted songs saved to %APPDATA%/neptune-player/songs/
+- Auto-update checks GitHub releases via API
+- Installer (.Setup.exe) required for auto-update to work (portable can't self-update)
+
+================================================================================
+ END - NeptunePlayer by ivymroow
+================================================================================

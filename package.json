@@ -1,0 +1,72 @@
+{
+  "name": "neptune-player",
+  "version": "1.2.8",
+  "description": "NeptunePlayer Standalone Desktop Application",
+  "author": "ivymroow",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.neptune.player",
+    "productName": "NeptunePlayer",
+    "publish": {
+      "provider": "github",
+      "owner": "ivymroow",
+      "repo": "NeptunePlayer"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "mini-player.html",
+      "icon.png",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      "yt-dlp.exe",
+      "ffmpeg.exe",
+      "ffprobe.exe"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "NeptunePlayer.Setup.${ext}",
+      "createDesktopShortcut": "always"
+    }
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.1",
+    "discord-rpc": "^4.0.1",
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.9",
+    "music-metadata": "^7.14.0",
+    "peerjs": "^1.5.5"
+  },
+  "devDependencies": {
+    "electron": "^42.0.0",
+    "electron-builder": "^26.0.12"
+  }
+}

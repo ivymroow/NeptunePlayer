@@ -1,0 +1,9 @@
+node_modules/
+dist/
+installer/dist/
+installer/node_modules/
+netlify.zip
+*.log
+ffmpeg.exe
+ffprobe.exe
+yt-dlp.exe

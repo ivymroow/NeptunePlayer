@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeptunePlayer Mini</title>
+    <style>
+        :root { --reactive: #57fe59; }
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body {
+            background: transparent; font-family: 'Segoe UI', sans-serif; overflow: hidden;
+            -webkit-app-region: drag;
+        }
+        #mini-container {
+            width: 340px; height: 180px; background: rgba(10,10,10,0.98); border-radius: 12px;
+            border: 1px solid var(--reactive); box-shadow: 0 0 30px -10px var(--reactive);
+            display: flex; flex-direction: column; position: relative; overflow: hidden;
+        }
+        #top-row {
+            display: flex; align-items: center; padding: 10px 12px 0 12px; gap: 10px; flex: 1;
+        }
+        #mini-art {
+            width: 56px; height: 56px; border-radius: 8px; object-fit: cover; flex-shrink: 0;
+            border: 1px solid var(--reactive);
+        }
+        #info-col {
+            flex: 1; overflow: hidden; min-width: 0;
+        }
+        #mini-title {
+            font-size: 0.8rem; font-weight: bold; color: var(--reactive); white-space: nowrap;
+            letter-spacing: 1px; text-transform: uppercase;
+        }
+        #mini-artist {
+            font-size: 0.65rem; color: var(--reactive); opacity: 0.6; margin-top: 2px;
+        }
+        #mini-time {
+            font-size: 0.6rem; color: var(--reactive); opacity: 0.4; margin-top: 4px; font-family: monospace;
+        }
+        #neptune-logo {
+            width: 32px; height: 32px; z-index: 5; align-self: flex-end; margin: 2px 10px;
+            transition: transform 0.08s ease-out; will-change: transform;
+        }
+        #controls {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            padding: 6px; border-top: 1px solid rgba(255,255,255,0.05);
+            -webkit-app-region: no-drag;
+        }
+        .m-btn {
+            background: none; border: 1px solid var(--reactive); color: var(--reactive);
+            border-radius: 50%; width: 28px; height: 28px; cursor: pointer; display: flex;
+            align-items: center; justify-content: center; font-size: 12px; transition: 0.2s;
+        }
+        .m-btn:hover { background: var(--reactive); color: #000; }
+        .m-btn.play-btn { width: 34px; height: 34px; font-size: 14px; }
+        #mini-close {
+            position: absolute; top: 6px; right: 10px; background: none; border: none;
+            color: var(--reactive); font-size: 14px; cursor: pointer; opacity: 0.4;
+            transition: opacity 0.2s; z-index: 10; -webkit-app-region: no-drag;
+        }
+        #mini-close:hover { opacity: 1; }
+    </style>
+</head>
+<body>
+    <div id="mini-container">
+        <button id="mini-close" onclick="closeMini()">&times;</button>
+        <div id="top-row">
+            <img id="mini-art" src="icon.png">
+            <div id="info-col">
+                <div id="mini-title">NeptunePlayer</div>
+                <div id="mini-artist">by ivymroow</div>
+                <div id="mini-time">0:00 / 0:00</div>
+            </div>
+        </div>
+        <img id="neptune-logo" src="icon.png">
+        <div id="controls">
+            <button class="m-btn" onclick="sendAction('prev')">&#9664;</button>
+            <button class="m-btn play-btn" id="m-play" onclick="sendAction('playpause')">&#9654;</button>
+            <button class="m-btn" onclick="sendAction('next')">&#9654;</button>
+        </div>
+    </div>
+    <script>
+        const fmt = s => { if(!s || isNaN(s)) return "0:00"; let m=Math.floor(s/60), r=Math.floor(s%60); return `${m}:${r<10?'0':''}${r}`; };
+        function sendAction(a) { if(window.electronAPI) window.electronAPI.sendMiniAction(a); }
+        function closeMini() { sendAction('close'); }
+        function setReactive(hex) { document.documentElement.style.setProperty('--reactive', hex); }
+
+        let targetBop = 0, currentBop = 0;
+        const logo = document.getElementById('neptune-logo');
+
+        function animateBop() {
+            currentBop += (targetBop - currentBop) * 0.12;
+            const s = 1 + Math.abs(currentBop) * 0.04;
+            logo.style.transform = `scale(${s}) translateY(${-(s - 1) * 20}px)`;
+            requestAnimationFrame(animateBop);
+        }
+        requestAnimationFrame(animateBop);
+
+        if (window.electronAPI) {
+            window.electronAPI.onMiniState(data => {
+                if (data.reactiveColor) setReactive(data.reactiveColor);
+                document.getElementById('mini-art').src = data.art || 'icon.png';
+                document.getElementById('mini-title').innerText = data.name || 'NeptunePlayer';
+                document.getElementById('mini-artist').innerText = data.artist || '';
+                document.getElementById('mini-time').innerText = fmt(data.currentTime) + ' / ' + fmt(data.duration);
+                document.getElementById('m-play').innerHTML = data.isPlaying ? '&#10074;&#10074;' : '&#9654;';
+            });
+
+            window.electronAPI.onMiniBop(bop => {
+                targetBop = bop;
+            });
+        }
+    </script>
+</body>
+</html>
