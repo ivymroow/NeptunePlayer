@@ -26,7 +26,7 @@ the sidebar has four tabs:
 ## features
 
 - discord rich presence. shows the current song and its album art in discord.
-- a-b loop. press the a-b button once to set point a, again to set point b. it loops that section. click once more it to clear. **[wip]**
+- a-b loop. press the a-b button once to set point a, again to set point b. it loops that section. click once more it to clear. ~~**[wip]**~~ 
 - synced lyrics. press the lyrics button in the bottom bar. lyrics load from lrclib. click a line to skip to that part. use the -0.3s / +0.3s buttons to fix timing.
 - equalizer. player settings > equalizer. ten bands with presets. **[wip]**
 - crossfade. player settings > crossfade. blends the end of one song into the next. **[wip]**
@@ -45,3 +45,4 @@ the sidebar has four tabs:
 
 - entire thing was vibedeveloped for so many nights @w@
 - **[wip]** next to features are work in progress and subject to either: be polished/reworked/rewrote or probably removed from the app entirely.
+- ~~**[wip]**~~ next to features mean i finished it quickly after making this fucking readme lolo hahaha fahahahahah 
